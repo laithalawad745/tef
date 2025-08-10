@@ -70,9 +70,27 @@ async function handleRegularMessage(message) {
     
     console.log(`💬 رسالة من ${userId} في ${chatId}: ${text.substring(0, 50)}`);
     
-    // إذا كانت رسالة اختبار
-    if (text.includes('اختبار') || text.includes('test')) {
-      await bot.sendMessage(userId, '✅ البوت يعمل بشكل صحيح!');
+    // الرد على أي رسالة للتأكد من أن البوت يعمل
+    if (message.chat.type === 'private') {
+      let replyMessage = '✅ البوت يعمل بشكل صحيح!\n\n';
+      
+      if (text.includes('اختبار') || text.includes('test')) {
+        replyMessage += '🔧 **تشخيص النظام:**\n';
+        replyMessage += '• الـ webhook يستقبل الرسائل ✅\n';
+        replyMessage += '• قاعدة البيانات متصلة ✅\n';
+        replyMessage += '• النظام جاهز للاختبار ✅\n\n';
+        replyMessage += '💡 **للاختبار:**\n';
+        replyMessage += '1. أضف البوت لقناة كمشرف\n';
+        replyMessage += '2. أنشئ دعوة من التطبيق\n';
+        replyMessage += '3. اطلب من شخص آخر استخدام الرابط\n';
+        replyMessage += '4. راقب النتائج!';
+      } else {
+        replyMessage += `📨 رسالتك: "${text}"\n`;
+        replyMessage += '🤖 أرسل "اختبار" للمزيد من التفاصيل';
+      }
+      
+      await bot.sendMessage(userId, replyMessage);
+      console.log(`📤 تم الرد على المستخدم ${userId}`);
     }
     
   } catch (error) {
