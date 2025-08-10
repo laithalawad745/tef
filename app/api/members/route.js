@@ -1,10 +1,18 @@
-// ===== إصلاح app/api/members/route.js - مشكلة المدة =====
+
+
+// =====  app/api/members/route.js =====
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import bot from '../../../lib/telegram.js';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
+
+// توليد رمز تحقق آمن
+function generateVerificationCode() {
+  return crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 أحرف
+}
 
 export async function POST(request) {
   try {
@@ -29,63 +37,61 @@ export async function POST(request) {
     });
 
     if (existingMember) {
-      return NextResponse.json({
-        error: 'المستخدم لديه عضوية نشطة بالفعل في هذه القناة'
+      return NextResponse.json({ 
+        error: 'المستخدم لديه عضوية نشطة بالفعل في هذه القناة' 
       }, { status: 400 });
     }
 
-    console.log(`📝 إنشاء عضوية آمنة للمستخدم ${telegramId} في القناة ${channel.name}`);
-    console.log(`⏰ المدة المطلوبة: ${minutes} دقيقة`);
+    console.log(`📝 إنشاء عضوية جديدة للمستخدم ${telegramId} في القناة ${channel.name}`);
 
-    // إنشاء رابط دعوة محمي - استخدام المدة الفعلية بدون إضافات
-    const linkExpiryMinutes = minutes || 1; // إذا لم تُحدد، استخدم 5 دقائق
-    
+    // توليد رمز تحقق فريد
+    const verificationCode = generateVerificationCode();
+
+    // إنشاء رابط دعوة شخصي
     const inviteLinkResult = await bot.createPersonalizedInviteLink(
       channel.telegramId,
       telegramId,
-      linkExpiryMinutes // استخدام المدة الفعلية بدون إضافة +5
+      minutes + 5
     );
 
     if (!inviteLinkResult.success) {
-      return NextResponse.json({
-        error: `فشل في إنشاء رابط الدعوة: ${inviteLinkResult.error}`
+      return NextResponse.json({ 
+        error: `فشل في إنشاء رابط الدعوة: ${inviteLinkResult.error}` 
       }, { status: 500 });
     }
-
-    console.log(`🔗 تم إنشاء رابط صالح لمدة: ${linkExpiryMinutes} دقيقة`);
 
     // حفظ العضو في قاعدة البيانات
     const member = await prisma.member.create({
       data: {
-        telegramId, // هذا هو المفتاح الأمني - فقط هذا الشخص يمكنه الدخول
+        telegramId,
         username,
         firstName,
         lastName,
         channelId,
         kickDate: new Date(kickDate),
         inviteLink: inviteLinkResult.invite_link,
-        hasJoined: false
+        uniqueToken: verificationCode, // حفظ رمز التحقق
+        hasJoined: false,
+        tokenUsed: false
       }
     });
 
-    // إرسال الرابط مع المدة الصحيحة
-    const sendResult = await bot.sendSecureInviteWithWarnings(
+    // إرسال الرابط مع رمز التحقق للمستخدم
+    const sendResult = await bot.sendSecureInvite(
       telegramId,
       channel.name,
       inviteLinkResult.invite_link,
-      linkExpiryMinutes // استخدام نفس المدة
+      verificationCode,
+      minutes || 5
     );
 
-    console.log(`✅ تم إنشاء دعوة محمية للمستخدم ${telegramId} لمدة ${linkExpiryMinutes} دقيقة`);
+    console.log(`✅ تم إنشاء دعوة محمية للمستخدم ${telegramId}`);
 
     return NextResponse.json({
       member,
-      linkExpiryMinutes: linkExpiryMinutes,
-      membershipDuration: minutes,
-      message: sendResult.success
-        ? `تم إرسال الدعوة المحمية! الرابط صالح لمدة ${linkExpiryMinutes} دقيقة`
-        : `تم إنشاء الدعوة لكن فشل الإرسال: ${sendResult.error}`,
-      security_note: `الرابط مخصص حصرياً للمستخدم ${telegramId} فقط`
+      message: sendResult.success 
+        ? 'تم إرسال الدعوة المحمية بنجاح!' 
+        : `تم إنشاء الدعوة لكن فشل الإرسال: ${sendResult.error}`
     });
 
   } catch (error) {
@@ -94,20 +100,3 @@ export async function POST(request) {
   }
 }
 
-export async function GET() {
-  try {
-    const members = await prisma.member.findMany({
-      include: {
-        channel: true
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    return NextResponse.json(members);
-  } catch (error) {
-    console.error('خطأ في جلب الأعضاء:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
