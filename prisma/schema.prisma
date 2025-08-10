@@ -1,0 +1,46 @@
+// ===== 4. عدل ملف prisma/schema.prisma =====
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  botToken  String?
+  createdAt DateTime @default(now())
+  channels  Channel[]
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  telegramId  String
+  name        String
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  members     Member[]
+  createdAt   DateTime @default(now())
+}
+
+model Member {
+  id           String   @id @default(cuid())
+  telegramId   String
+  username     String?
+  firstName    String?
+  lastName     String?
+  channelId    String
+  channel      Channel  @relation(fields: [channelId], references: [id])
+  kickDate     DateTime
+  isActive     Boolean  @default(true)
+  uniqueToken  String?  // كود التحقق (6 أحرف)
+  inviteLink   String?  // رابط الدعوة المؤقت
+  hasJoined    Boolean  @default(false) // هل تم تأكيد الانضمام؟
+  tokenUsed    Boolean  @default(false) // هل تم استخدام الكود؟
+  createdAt    DateTime @default(now())
+}
