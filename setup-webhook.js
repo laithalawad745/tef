@@ -1,9 +1,8 @@
 // ===== ملف setup-webhook.js =====
 // احفظ هذا الملف في مجلد المشروع وشغله مرة واحدة
 
-const TELEGRAM_BOT_TOKEN = '8394267827:AAFu-suFMEJ3XiTU-Bmm86MnD_qGSGgkxBY'; // ضع التوكن الحقيقي هنا
-const WEBHOOK_URL = 'https://yourapp.vercel.app/api/bot/webhook'; // ضع رابط التطبيق الحقيقي
-
+const TELEGRAM_BOT_TOKEN = '8394267827:AAFu-suFMEJ3XiTU-Bmm86MnD_qGSGgkxBY';
+const WEBHOOK_URL = 'https://tef-gules.vercel.app/api/bot/webhook'; // ← هذا الصحيح
 async function setupWebhook() {
   try {
     console.log('🔧 بدء ضبط الـ webhook...');
