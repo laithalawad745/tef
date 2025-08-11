@@ -38,9 +38,7 @@ model Member {
   channel      Channel  @relation(fields: [channelId], references: [id])
   kickDate     DateTime
   isActive     Boolean  @default(true)
-  uniqueToken  String?  // كود التحقق (6 أحرف)
   inviteLink   String?  // رابط الدعوة المؤقت
   hasJoined    Boolean  @default(false) // هل تم تأكيد الانضمام؟
-  tokenUsed    Boolean  @default(false) // هل تم استخدام الكود؟
   createdAt    DateTime @default(now())
 }

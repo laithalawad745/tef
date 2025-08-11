@@ -1,5 +1,3 @@
-//test-bot 
-
 import { NextResponse } from 'next/server';
 
 export async function GET() {

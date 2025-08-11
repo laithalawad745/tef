@@ -1,4 +1,3 @@
-//scheduler
 import { NextResponse } from 'next/server';
 import autoKickScheduler from '../../../lib/scheduler.js';
 

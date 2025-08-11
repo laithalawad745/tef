@@ -1,18 +1,9 @@
-
-
-// =====  app/api/members/route.js =====
-
+// ===== 3. تحديث app/api/members/route.js =====
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import bot from '../../../lib/telegram.js';
-import crypto from 'crypto';
 
 const prisma = new PrismaClient();
-
-// توليد رمز تحقق آمن
-function generateVerificationCode() {
-  return crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 أحرف
-}
 
 export async function POST(request) {
   try {
@@ -27,7 +18,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'القناة غير موجودة' }, { status: 404 });
     }
 
-    // التحقق من عدم وجود عضوية نشطة لنفس المستخدم
+    // التحقق من عدم وجود عضوية نشطة
     const existingMember = await prisma.member.findFirst({
       where: {
         telegramId,
@@ -37,26 +28,23 @@ export async function POST(request) {
     });
 
     if (existingMember) {
-      return NextResponse.json({ 
-        error: 'المستخدم لديه عضوية نشطة بالفعل في هذه القناة' 
+      return NextResponse.json({
+        error: 'المستخدم لديه عضوية نشطة بالفعل'
       }, { status: 400 });
     }
 
-    console.log(`📝 إنشاء عضوية جديدة للمستخدم ${telegramId} في القناة ${channel.name}`);
+    console.log(`📝 إنشاء عضوية آمنة للمستخدم ${telegramId}`);
 
-    // توليد رمز تحقق فريد
-    const verificationCode = generateVerificationCode();
-
-    // إنشاء رابط دعوة شخصي
-    const inviteLinkResult = await bot.createPersonalizedInviteLink(
+    // إنشاء رابط دعوة آمن مع طلب الموافقة
+    const inviteLinkResult = await bot.createSecureInviteLink(
       channel.telegramId,
       telegramId,
-      minutes + 5
+      minutes || 5
     );
 
     if (!inviteLinkResult.success) {
-      return NextResponse.json({ 
-        error: `فشل في إنشاء رابط الدعوة: ${inviteLinkResult.error}` 
+      return NextResponse.json({
+        error: `فشل في إنشاء الرابط: ${inviteLinkResult.error}`
       }, { status: 500 });
     }
 
@@ -70,33 +58,29 @@ export async function POST(request) {
         channelId,
         kickDate: new Date(kickDate),
         inviteLink: inviteLinkResult.invite_link,
-        uniqueToken: verificationCode, // حفظ رمز التحقق
         hasJoined: false,
-        tokenUsed: false
+        isActive: true
       }
     });
 
-    // إرسال الرابط مع رمز التحقق للمستخدم
+    // إرسال الرابط للمستخدم
     const sendResult = await bot.sendSecureInvite(
       telegramId,
       channel.name,
       inviteLinkResult.invite_link,
-      verificationCode,
       minutes || 5
     );
 
-    console.log(`✅ تم إنشاء دعوة محمية للمستخدم ${telegramId}`);
+    console.log(`✅ تم إنشاء دعوة آمنة للمستخدم ${telegramId}`);
 
     return NextResponse.json({
       member,
-      message: sendResult.success 
-        ? 'تم إرسال الدعوة المحمية بنجاح!' 
+      message: sendResult.success
+        ? 'تم إرسال الدعوة الآمنة بنجاح!'
         : `تم إنشاء الدعوة لكن فشل الإرسال: ${sendResult.error}`
     });
-
   } catch (error) {
     console.error('خطأ في إضافة العضو:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-

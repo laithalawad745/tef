@@ -1,3 +1,4 @@
+// ===== 2. تحديث app/api/bot/webhook/route.js =====
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import bot from '../../../../lib/telegram.js';
@@ -9,9 +10,19 @@ export async function POST(request) {
     const update = await request.json();
     console.log('📨 Webhook update:', JSON.stringify(update, null, 2));
 
-    // معالجة الأعضاء الجدد
+    // معالجة طلبات الانضمام
+    if (update.chat_join_request) {
+      await handleJoinRequest(update.chat_join_request);
+    }
+
+    // معالجة انضمام أعضاء جدد (في حالة القنوات المفتوحة)
     if (update.message && update.message.new_chat_members) {
       await handleNewMembers(update.message);
+    }
+
+    // معالجة مغادرة الأعضاء
+    if (update.message && update.message.left_chat_member) {
+      await handleLeftMember(update.message);
     }
 
     return NextResponse.json({ ok: true });
@@ -21,7 +32,98 @@ export async function POST(request) {
   }
 }
 
-// معالجة الأعضاء الجدد
+// معالجة طلبات الانضمام الجديدة
+async function handleJoinRequest(joinRequest) {
+  const chatId = joinRequest.chat.id.toString();
+  const userId = joinRequest.from.id.toString();
+  const inviteLink = joinRequest.invite_link;
+
+  console.log(`📋 طلب انضمام من ${userId} للقناة ${chatId}`);
+
+  try {
+    // البحث عن العضو المصرح له
+    const member = await prisma.member.findFirst({
+      where: {
+        telegramId: userId,
+        channel: { telegramId: chatId },
+        isActive: true,
+        hasJoined: false
+      },
+      include: { channel: true }
+    });
+
+    if (member && member.inviteLink) {
+      // التحقق من أن الرابط المستخدم هو نفس الرابط المرسل
+      if (inviteLink && inviteLink.invite_link === member.inviteLink) {
+        console.log(`✅ طلب مصرح من المستخدم الصحيح: ${userId}`);
+
+        // قبول الطلب
+        const approveResult = await bot.approveChatJoinRequest(chatId, userId);
+
+        if (approveResult.success) {
+          // تحديث حالة العضو
+          await prisma.member.update({
+            where: { id: member.id },
+            data: { 
+              hasJoined: true,
+              inviteLink: null // حذف الرابط بعد الاستخدام
+            }
+          });
+
+          // إلغاء الرابط نهائياً
+          await bot.revokeInviteLink(chatId, member.inviteLink);
+
+          // إرسال رسالة ترحيب
+          await bot.sendMessage(userId, `
+🎉 **مرحباً بك في ${member.channel.name}!**
+
+✅ تم قبول طلب انضمامك
+📅 عضويتك تنتهي في: ${new Date(member.kickDate).toLocaleString('ar-EG')}
+
+استمتع بالمحتوى! 🚀
+          `);
+
+          console.log(`✅ تم قبول وتأكيد انضمام ${userId}`);
+        }
+      } else {
+        // رابط مختلف أو محاولة احتيال
+        console.log(`⚠️ محاولة استخدام رابط مختلف من ${userId}`);
+        await rejectUnauthorizedRequest(chatId, userId);
+      }
+    } else {
+      // مستخدم غير مصرح
+      console.log(`❌ طلب غير مصرح من ${userId}`);
+      await rejectUnauthorizedRequest(chatId, userId);
+    }
+  } catch (error) {
+    console.error(`❌ خطأ في معالجة طلب الانضمام:`, error);
+    // في حالة الخطأ، نرفض الطلب
+    await bot.declineChatJoinRequest(chatId, userId);
+  }
+}
+
+// رفض الطلبات غير المصرحة
+async function rejectUnauthorizedRequest(chatId, userId) {
+  try {
+    // رفض الطلب
+    await bot.declineChatJoinRequest(chatId, userId);
+
+    // إرسال رسالة للمستخدم
+    await bot.sendMessage(userId, `
+❌ **طلب انضمام مرفوض**
+
+لا تملك دعوة صالحة لهذه القناة.
+
+💡 للحصول على دعوة، تواصل مع المشرف.
+    `);
+
+    console.log(`🚫 تم رفض طلب غير مصرح من ${userId}`);
+  } catch (error) {
+    console.error('خطأ في رفض الطلب:', error);
+  }
+}
+
+// معالجة الأعضاء الجدد (للقنوات المفتوحة)
 async function handleNewMembers(message) {
   const chatId = message.chat.id.toString();
   const newMembers = message.new_chat_members;
@@ -30,89 +132,56 @@ async function handleNewMembers(message) {
     if (newMember.is_bot) continue;
 
     const userId = newMember.id.toString();
-    console.log(`👤 عضو جديد انضم: ${userId} في القناة ${chatId}`);
+    console.log(`👤 عضو جديد انضم مباشرة: ${userId}`);
 
-    try {
-      // جلب العضو المصرح له من قاعدة البيانات
-      const member = await prisma.member.findFirst({
-        where: {
-          channel: { telegramId: chatId },
-          isActive: true
-        },
-        include: { channel: true }
-      });
-
-      if (!member) {
-        console.log(`❌ لا يوجد أي عضو مصرح لهذه القناة`);
-        await kickUnauthorized(chatId, userId);
-        continue;
+    const member = await prisma.member.findFirst({
+      where: {
+        telegramId: userId,
+        channel: { telegramId: chatId },
+        isActive: true
       }
+    });
 
-      // التحقق من أن الشخص الذي انضم هو نفس المصرح له
-      if (member.telegramId !== userId) {
-        console.log(`🚫 شخص غير مصرح (${userId}) حاول الدخول بدل ${member.telegramId}`);
-        await kickUnauthorized(chatId, userId);
-        continue;
-      }
-
-      // إذا كان الشخص صحيح → تحديث حالة الانضمام
-      console.log(`✅ عضو مصرح له: ${userId}`);
-      await prisma.member.update({
-        where: { id: member.id },
-        data: { hasJoined: true }
-      });
-
-      // إلغاء رابط الدعوة فوراً
-      if (member.inviteLink) {
-        console.log(`🔒 إلغاء رابط الدعوة للمستخدم ${userId}`);
-        await bot.revokeInviteLink(member.channel.telegramId, member.inviteLink);
-        await prisma.member.update({
-          where: { id: member.id },
-          data: { inviteLink: null }
-        });
-      }
-
-      // رسالة ترحيب
-      try {
+    if (!member) {
+      // طرد فوري للأعضاء غير المصرحين
+      setTimeout(async () => {
+        await bot.kickChatMember(chatId, userId);
         await bot.sendMessage(userId, `
-🎉 **مرحباً بك في ${member.channel.name}!**
+❌ **دخول غير مصرح**
 
-📅 مدة عضويتك تنتهي في: ${new Date(member.kickDate).toLocaleString('ar-EG')}
-🔒 تم إلغاء رابط الدعوة نهائياً.
+تم إخراجك من القناة لأنك لا تملك دعوة صالحة.
         `);
-      } catch {
-        console.log(`⚠️ لم يتم إرسال رسالة الترحيب للمستخدم ${userId}`);
-      }
-
-    } catch (error) {
-      console.error(`❌ خطأ في معالجة العضو ${userId}:`, error);
+      }, 2000);
     }
   }
 }
 
-// دالة طرد الأشخاص غير المصرح لهم
-async function kickUnauthorized(chatId, userId) {
-  try {
-    await bot.kickChatMember(chatId, userId, 'غير مصرح');
-    console.log(`🔨 تم طرد العضو ${userId} من القناة ${chatId}`);
+// معالجة مغادرة الأعضاء
+async function handleLeftMember(message) {
+  const chatId = message.chat.id.toString();
+  const leftMember = message.left_chat_member;
+  
+  if (leftMember.is_bot) return;
 
-    try {
-      await bot.sendMessage(userId, `
-❌ **دخول غير مصرح**
-تم إخراجك من القناة.
-💡 للحصول على دعوة صحيحة، تواصل مع المشرف.
-      `);
-    } catch {
-      console.log(`⚠️ لم يتم إرسال إشعار الطرد للمستخدم ${userId}`);
+  const userId = leftMember.id.toString();
+  console.log(`👋 العضو ${userId} غادر القناة ${chatId}`);
+
+  // تحديث حالة العضو
+  await prisma.member.updateMany({
+    where: {
+      telegramId: userId,
+      channel: { telegramId: chatId }
+    },
+    data: {
+      isActive: false,
+      hasJoined: false
     }
-  } catch (err) {
-    console.log(`⚠️ فشل في طرد المستخدم ${userId}:`, err.message);
-  }
+  });
 }
 
 export async function GET() {
-  return NextResponse.json({
-    message: 'Webhook يعمل مع حماية حسب Telegram ID',
+  return NextResponse.json({ 
+    message: 'Secure webhook system with join request verification',
     timestamp: new Date().toISOString()
   });
 }
