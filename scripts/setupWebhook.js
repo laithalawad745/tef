@@ -4,7 +4,7 @@
 const https = require('https');
 
 // ⚠️ ضع معلوماتك هنا
-const BOT_TOKEN = 'ضع_توكن_البوت_هنا'; // نفس التوكن الموجود في .env
+const BOT_TOKEN = '8394267827:AAFu-suFMEJ3XiTU-Bmm86MnD_qGSGgkxBY'; // نفس التوكن الموجود في .env
 const YOUR_DOMAIN = 'ضع_دومين_موقعك_هنا'; // مثل: your-app.vercel.app أو localhost مع ngrok
 
 // رابط الـ Webhook
